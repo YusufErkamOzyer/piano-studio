@@ -48,9 +48,9 @@ class AudioEngine {
       },
       envelope: {
         attack: 0.003,
-        decay: 2.2,
-        sustain: 0.15,
-        release: 0.8
+        decay: 2.5,
+        sustain: 0.0, // Acoustic piano naturally decays to silence
+        release: 0.6
       },
       volume: -4
     });
@@ -135,6 +135,76 @@ class AudioEngine {
         velocity: Math.round(clampedVelocity * 127)
       });
     }
+  }
+
+  playNoteWithDuration(pitch: number, durationSec: number = 0.5, velocity: number = 0.8, isFromUser: boolean = false) {
+    if (!this.isInitialized) {
+      this.init().then(() => this.playNoteWithDuration(pitch, durationSec, velocity, isFromUser));
+      return;
+    }
+
+    const noteName = midiToNoteName(pitch);
+    const clampedVelocity = Math.max(0.1, Math.min(1.0, velocity));
+    const now = Tone.now();
+
+    if (this.sampler && this.sampler.loaded) {
+      try {
+        this.sampler.triggerAttackRelease(noteName, durationSec, now, clampedVelocity);
+      } catch (e) {
+        console.warn('Sampler triggerAttackRelease error', e);
+      }
+    } else if (this.polySynth) {
+      try {
+        this.polySynth.triggerAttackRelease(noteName, durationSec, now, clampedVelocity);
+      } catch (e) {
+        console.warn('PolySynth triggerAttackRelease error', e);
+      }
+    }
+
+    this.currentlyPlayingNotes.add(pitch);
+    this.notifyActiveNotes();
+
+    setTimeout(() => {
+      this.currentlyPlayingNotes.delete(pitch);
+      this.notifyActiveNotes();
+    }, Math.max(100, durationSec * 1000));
+
+    if (this.isRecording && isFromUser) {
+      const elapsed = Date.now() - this.recordingStartTime;
+      this.currentRecordedEvents.push({
+        type: 'noteOn',
+        pitch,
+        time: elapsed,
+        velocity: Math.round(clampedVelocity * 127)
+      });
+      setTimeout(() => {
+        if (this.isRecording) {
+          this.currentRecordedEvents.push({
+            type: 'noteOff',
+            pitch,
+            time: elapsed + durationSec * 1000,
+            velocity: 0
+          });
+        }
+      }, durationSec * 1000);
+    }
+  }
+
+  stopAllNotes() {
+    if (this.sampler) {
+      try {
+        this.sampler.releaseAll(Tone.now());
+      } catch {}
+    }
+    if (this.polySynth) {
+      try {
+        this.polySynth.releaseAll(Tone.now());
+      } catch {}
+    }
+    this.activeNotes.clear();
+    this.currentlyPlayingNotes.clear();
+    this.sustainedNotes.clear();
+    this.notifyActiveNotes();
   }
 
   stopNote(pitch: number, isFromUser: boolean = true) {

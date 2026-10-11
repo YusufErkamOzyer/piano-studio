@@ -37,6 +37,14 @@ export const Play: React.FC = () => {
     });
   }, []);
 
+  // Cleanup on unmount (reset sustain and stop ringing notes)
+  useEffect(() => {
+    return () => {
+      audioEngine.setSustain(false);
+      audioEngine.stopAllNotes();
+    };
+  }, []);
+
   // Update volume & reverb
   useEffect(() => {
     audioEngine.setVolume(volume / 100);

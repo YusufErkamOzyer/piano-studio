@@ -287,8 +287,8 @@ export const FallingNotesCanvas: React.FC<FallingNotesCanvasProps> = ({
         if (diffToBeats < 0.12 && !triggeredNotesRef.current.has(noteIndex)) {
           if (!waitModeRef.current) {
             // Autoplay sound or check hit
-            audioEngine.playNote(note.pitch, (note.velocity || 90) / 127, false);
-            setTimeout(() => audioEngine.stopNote(note.pitch, false), Math.min(800, (note.durationBeats * 60 / piece.tempoBpm) * 1000));
+            const noteDurSec = Math.max(0.15, (note.durationBeats * 60 / piece.tempoBpm) * 0.9);
+            audioEngine.playNoteWithDuration(note.pitch, noteDurSec, (note.velocity || 90) / 127, false);
             emitHitParticles(geom.x + geom.width / 2, hitY, gradientColorStart);
             triggeredNotesRef.current.add(noteIndex);
             onScoreUpdate?.('perfect', note.pitch);
@@ -331,6 +331,7 @@ export const FallingNotesCanvas: React.FC<FallingNotesCanvasProps> = ({
 
     return () => {
       cancelAnimationFrame(animId);
+      audioEngine.stopAllNotes();
     };
   }, [piece, startPitch, endPitch, onScoreUpdate, onProgress, onEnded, emitHitParticles]);
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { pieceStore } from '../services/pieceStore.ts';
 import { audioEngine } from '../services/audioEngine.ts';
 import { exportRecordingToMidi } from '../services/midiConverter.ts';
@@ -22,6 +22,27 @@ export const Review: React.FC = () => {
   const [activeSession, setActiveSession] = useState<RecordingSession | null>(recordings[0] || null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackTimeMs, setPlaybackTimeMs] = useState<number>(0);
+
+  const playbackTimeoutsRef = useRef<number[]>([]);
+  const playbackIntervalRef = useRef<number | null>(null);
+
+  const stopPlayback = useCallback(() => {
+    playbackTimeoutsRef.current.forEach(id => clearTimeout(id));
+    playbackTimeoutsRef.current = [];
+    if (playbackIntervalRef.current) {
+      clearInterval(playbackIntervalRef.current);
+      playbackIntervalRef.current = null;
+    }
+    audioEngine.stopAllNotes();
+    setIsPlaying(false);
+  }, []);
+
+  // Cleanup on unmount or session change
+  useEffect(() => {
+    return () => {
+      stopPlayback();
+    };
+  }, [stopPlayback]);
 
   useEffect(() => {
     return pieceStore.subscribe(() => {
@@ -47,42 +68,35 @@ export const Review: React.FC = () => {
 
   const handlePlaySession = (session: RecordingSession) => {
     if (isPlaying) {
-      setIsPlaying(false);
+      stopPlayback();
       return;
     }
 
+    stopPlayback();
     setIsPlaying(true);
     setPlaybackTimeMs(0);
 
     const startTime = Date.now();
-    const timeouts: any[] = [];
 
     // Schedule all events
     session.events.forEach(evt => {
-      const tid = setTimeout(() => {
+      const tid = window.setTimeout(() => {
         if (evt.type === 'noteOn') {
           audioEngine.playNote(evt.pitch, (evt.velocity || 80) / 127, false);
         } else {
           audioEngine.stopNote(evt.pitch, false);
         }
       }, evt.time);
-      timeouts.push(tid);
+      playbackTimeoutsRef.current.push(tid);
     });
 
-    const interval = setInterval(() => {
+    playbackIntervalRef.current = window.setInterval(() => {
       const elapsed = Date.now() - startTime;
       setPlaybackTimeMs(elapsed);
       if (elapsed >= session.durationMs) {
-        clearInterval(interval);
-        setIsPlaying(false);
+        stopPlayback();
       }
     }, 50);
-
-    // Stop handler
-    return () => {
-      clearInterval(interval);
-      timeouts.forEach(clearTimeout);
-    };
   };
 
   const formatMs = (ms: number) => {

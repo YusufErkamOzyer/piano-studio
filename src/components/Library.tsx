@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { pieceStore } from '../services/pieceStore.ts';
 import { validatePiece } from '../services/pieceValidator.ts';
 import { parseMidiFile } from '../services/midiConverter.ts';
@@ -11,6 +11,7 @@ import {
   Clock, 
   Trash2, 
   Play, 
+  Square,
   Sparkles, 
   BookOpen, 
   FileText, 
@@ -32,6 +33,21 @@ export const Library: React.FC<LibraryProps> = ({ onSelectPieceForLearn }) => {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewTimeoutsRef = useRef<number[]>([]);
+
+  const stopPreview = useCallback(() => {
+    previewTimeoutsRef.current.forEach(id => clearTimeout(id));
+    previewTimeoutsRef.current = [];
+    audioEngine.stopAllNotes();
+    setPreviewingPieceId(null);
+  }, []);
+
+  // Stop preview on component unmount
+  useEffect(() => {
+    return () => {
+      stopPreview();
+    };
+  }, [stopPreview]);
 
   useEffect(() => {
     return pieceStore.subscribe(() => {
@@ -55,26 +71,35 @@ export const Library: React.FC<LibraryProps> = ({ onSelectPieceForLearn }) => {
   };
 
   const handlePreviewPiece = (piece: Piece) => {
+    // If clicking the one currently playing, stop it
     if (previewingPieceId === piece.id) {
-      setPreviewingPieceId(null);
+      stopPreview();
       return;
     }
 
+    // Stop previous preview before starting new one
+    stopPreview();
     setPreviewingPieceId(piece.id);
-    // Play preview of first 12 notes
+
+    // Play preview of first 16 notes using playNoteWithDuration
     const previewNotes = piece.notes.slice(0, 16);
     previewNotes.forEach((note) => {
       const delayMs = (note.startBeat * 60 / piece.tempoBpm) * 600;
-      setTimeout(() => {
-        audioEngine.playNote(note.pitch, 0.8, false);
-        setTimeout(() => audioEngine.stopNote(note.pitch, false), 350);
+      const durationSec = Math.max(0.2, (note.durationBeats * 60 / piece.tempoBpm) * 0.9);
+      
+      const tid = window.setTimeout(() => {
+        audioEngine.playNoteWithDuration(note.pitch, durationSec, 0.8, false);
       }, delayMs);
+      previewTimeoutsRef.current.push(tid);
     });
 
-    const totalDuration = ((previewNotes[previewNotes.length - 1]?.startBeat || 4) * 60 / piece.tempoBpm) * 600 + 500;
-    setTimeout(() => {
-      setPreviewingPieceId(null);
+    const lastNote = previewNotes[previewNotes.length - 1];
+    const totalDuration = ((lastNote?.startBeat || 4) * 60 / piece.tempoBpm) * 600 + 1000;
+    
+    const endTid = window.setTimeout(() => {
+      stopPreview();
     }, totalDuration);
+    previewTimeoutsRef.current.push(endTid);
   };
 
   const filteredPieces = pieces
@@ -228,8 +253,17 @@ export const Library: React.FC<LibraryProps> = ({ onSelectPieceForLearn }) => {
                   }`}
                   title="Kısa Ön Dinleme"
                 >
-                  <Play className="w-3.5 h-3.5" />
-                  <span className="text-[11px]">Dinle</span>
+                  {previewingPieceId === piece.id ? (
+                    <>
+                      <Square className="w-3.5 h-3.5 fill-emerald-400 text-emerald-400" />
+                      <span className="text-[11px]">Durdur</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">Dinle</span>
+                    </>
+                  )}
                 </button>
 
                 {piece.status === 'pending' ? (
